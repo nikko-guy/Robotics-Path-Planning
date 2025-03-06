@@ -42,8 +42,8 @@ for i in range(N_PARTS):
 # The Tiago robot has a couple more sensors than the e-Puck
 # Some of them are mentioned below. We will use its LiDAR for Lab 5
 
-range = robot.getDevice('range-finder')
-range.enable(timestep)
+range_finder = robot.getDevice('range-finder')
+range_finder.enable(timestep)
 camera = robot.getDevice('camera')
 camera.enable(timestep)
 camera.recognitionEnable(timestep)
@@ -87,6 +87,7 @@ mode = 'planner'
 # mode = 'autonomous'
 # mode = 'picknplace'
 
+probability_step = 5e-3
 
 
 ###################
@@ -111,13 +112,35 @@ if mode == 'planner':
         :param end: A tuple of indices representing the end cell in the map
         :return: A list of tuples as a path from the given start to the given end in the given maze
         '''
-        pass
+        reached_goal = False
+        path = []
+        
+        while not reached_goal:
+            #get up to 4 valid neighbor cells
+            neighbors = []
+            
+        
+        return path
 
     # Part 2.1: Load map (map.npy) from disk and visualize it
+    map = np.load("map.npy")
+    #switch x and y axes
+    map = np.transpose(map)
+    # for x in range(0,360):
+    #     for y in range(0,360):
+    #         if map[x, y] == 1:
+    #             display.setColor(0x0000FF)
+    #             display.drawPixel(x, y)
 
 
     # Part 2.2: Compute an approximation of the “configuration space”
 
+    #convolve with a 5x5 kernel to smooth out the map
+    kernel = np.ones((15,15))
+    map = convolve2d(map, kernel, mode='full', boundary='fill', fillvalue=0)
+    map = map > 0.5
+    plt.imshow(map)
+    plt.show()
 
     # Part 2.3 continuation: Call path_planner
 
@@ -198,8 +221,17 @@ while robot.step(timestep) != -1 and mode != 'planner':
  
             # You will eventually REPLACE the following lines with a more robust version of the map
             # with a grayscale drawing containing more levels than just 0 and 1.
-            display.setColor(int(0X0000FF))
-            display.drawPixel(360-abs(int(wx*30)),abs(int(wy*30)))
+            pixel = (max(0,min(359,360-abs(int(wx*30)))),max(0,min(359,abs(int(wy*30)))))
+            pixel_value = map[pixel[0], pixel[1]]
+            if pixel_value < 1:
+                pixel_value += probability_step
+            pixel_value = min(1, pixel_value)
+            map[pixel[0], pixel[1]] = pixel_value
+            
+            color = int((pixel_value*256**2+pixel_value*256+pixel_value)*255)
+            
+            display.setColor(color)
+            display.drawPixel(pixel[0], pixel[1])
 
     # Draw the robot's current pose on the 360x360 display
     display.setColor(int(0xFF0000))
@@ -230,7 +262,8 @@ while robot.step(timestep) != -1 and mode != 'planner':
             vR = 0
         elif key == ord('S'):
             # Part 1.4: Filter map and save to filesystem
-
+            filtered_map = map > 0.8
+            np.save("map.npy", filtered_map)
             print("Map file saved")
         elif key == ord('L'):
             # You will not use this portion in Part 1 but here's an example for loading saved a numpy array

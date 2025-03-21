@@ -1,6 +1,5 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy.signal import convolve2d
 from matplotlib.widgets import RectangleSelector
 
 # Load the original map
@@ -10,16 +9,9 @@ original_map = np.load("./controllers/lab5_controller2/map.npy")
 # Create a copy for editing
 edited_map = original_map.copy()
 
-# Create the convolved version for display purposes only
-kernel = np.ones((15, 15))
-convolved_map = convolve2d(
-    original_map, kernel, mode="full", boundary="fill", fillvalue=0
-)
-convolved_map = convolved_map > 0.5
-
 # Create a figure and axis
 fig, ax = plt.subplots()
-im = ax.imshow(convolved_map)
+im = ax.imshow(edited_map)  # Show the edited map directly instead of convolved map
 
 # Track the current mode (add or remove obstacles)
 current_mode = "add"  # Default mode is adding obstacles
@@ -31,11 +23,11 @@ def add_callback(eclick, erelease):
     x2, y2 = int(erelease.xdata), int(erelease.ydata)
 
     # Ensure coordinates are within map bounds
-    x1, x2 = max(0, min(x1, convolved_map.shape[1] - 1)), max(
-        0, min(x2, convolved_map.shape[1] - 1)
+    x1, x2 = max(0, min(x1, edited_map.shape[1] - 1)), max(
+        0, min(x2, edited_map.shape[1] - 1)
     )
-    y1, y2 = max(0, min(y1, convolved_map.shape[0] - 1)), max(
-        0, min(y2, convolved_map.shape[0] - 1)
+    y1, y2 = max(0, min(y1, edited_map.shape[0] - 1)), max(
+        0, min(y2, edited_map.shape[0] - 1)
     )
 
     # Sort coordinates
@@ -43,19 +35,10 @@ def add_callback(eclick, erelease):
     y1, y2 = min(y1, y2), max(y1, y2)
 
     # Add obstacles (set to 1)
-    convolved_map[y1 : y2 + 1, x1 : x2 + 1] = 1
-
-    # Also update the corresponding area in the original map
-    # Need to account for potential size differences due to convolution
-    orig_y1 = max(0, min(y1, edited_map.shape[0] - 1))
-    orig_y2 = max(0, min(y2, edited_map.shape[0] - 1))
-    orig_x1 = max(0, min(x1, edited_map.shape[1] - 1))
-    orig_x2 = max(0, min(x2, edited_map.shape[1] - 1))
-
-    edited_map[orig_y1 : orig_y2 + 1, orig_x1 : orig_x2 + 1] = 1
+    edited_map[y1 : y2 + 1, x1 : x2 + 1] = 1
 
     # Update the display
-    im.set_data(convolved_map)
+    im.set_data(edited_map)
     fig.canvas.draw_idle()
 
 
@@ -65,11 +48,11 @@ def remove_callback(eclick, erelease):
     x2, y2 = int(erelease.xdata), int(erelease.ydata)
 
     # Ensure coordinates are within map bounds
-    x1, x2 = max(0, min(x1, convolved_map.shape[1] - 1)), max(
-        0, min(x2, convolved_map.shape[1] - 1)
+    x1, x2 = max(0, min(x1, edited_map.shape[1] - 1)), max(
+        0, min(x2, edited_map.shape[1] - 1)
     )
-    y1, y2 = max(0, min(y1, convolved_map.shape[0] - 1)), max(
-        0, min(y2, convolved_map.shape[0] - 1)
+    y1, y2 = max(0, min(y1, edited_map.shape[0] - 1)), max(
+        0, min(y2, edited_map.shape[0] - 1)
     )
 
     # Sort coordinates
@@ -77,19 +60,10 @@ def remove_callback(eclick, erelease):
     y1, y2 = min(y1, y2), max(y1, y2)
 
     # Remove obstacles (set to 0)
-    convolved_map[y1 : y2 + 1, x1 : x2 + 1] = 0
-
-    # Also update the corresponding area in the original map
-    # Need to account for potential size differences due to convolution
-    orig_y1 = max(0, min(y1, edited_map.shape[0] - 1))
-    orig_y2 = max(0, min(y2, edited_map.shape[0] - 1))
-    orig_x1 = max(0, min(x1, edited_map.shape[1] - 1))
-    orig_x2 = max(0, min(x2, edited_map.shape[1] - 1))
-
-    edited_map[orig_y1 : orig_y2 + 1, orig_x1 : orig_x2 + 1] = 0
+    edited_map[y1 : y2 + 1, x1 : x2 + 1] = 0
 
     # Update the display
-    im.set_data(convolved_map)
+    im.set_data(edited_map)
     fig.canvas.draw_idle()
 
 

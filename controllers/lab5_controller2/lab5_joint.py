@@ -265,14 +265,3 @@ def openGrip():
     # else:
     #     return True
 ################ v [Begin] Do not modify v ##################
-
-
-while robot.step(timestep) !=-1:
-    # make sure your robot joints moves accordingly
-    ikResults = [0,0,0,0,0.07,0,-1.5,2.29,-1.8,1.1,-1.4,0,0,0]
-    # ikResults = [0,0,0,0,0.07,1.02,-1.5,2.29,-1.8,1.1,-1.4,0,0,0]
-    moveArmToTarget(ikResults)  
-
-        
-    ## Implement recognition of any object other than orange at the original location 
-    

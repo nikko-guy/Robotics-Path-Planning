@@ -60,7 +60,7 @@ EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2022b/project
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2022b/projects/objects/kitchen/utensils/protos/Wineglass.proto"
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2022b/projects/objects/chairs/protos/Chair.proto"
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2022b/projects/objects/fruits/protos/FruitBowl.proto"
-EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2022b/projects/objects/fruits/protos/Orange.proto"
+EXTERNPROTO "../protos/Orange.proto"
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2022b/projects/objects/drinks/protos/BeerBottle.proto"
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2022b/projects/objects/drinks/protos/Can.proto"
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2022b/projects/objects/living_room_furniture/protos/Armchair.proto"
@@ -89,7 +89,7 @@ WorldInfo {
 }
 Viewpoint {
   orientation -0.5667653106971666 0.5832986624049555 0.581841690691664 2.062502433025435
-  position -7.394410681776844 -5.434978640589458 21.571164540187183
+  position -2.8540781907032162 -9.893792191628513 5.94466216388779
   exposure 0.5
   ambientOcclusionRadius 1
 }
@@ -883,6 +883,7 @@ RubberDuck {
   translation -3.8525723709804423 -9.640362503065347 0.8604380181253215
   rotation -6.397998281434854e-10 2.440669480666984e-10 1 2.206592634384388
   name "rubber duck(1)"
+  bodyColor 0.87451 1 0.113725
 }
 Cabinet {
   translation -7.2623999999999995 -6.39914 0

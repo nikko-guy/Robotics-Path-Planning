@@ -27,6 +27,7 @@ timestep = int(robot.getBasicTimeStep())
 
 # targets
 target_item = "orange"
+target_object_reference = None  # Store the target object once found
 
 #verbose
 vrb = True
@@ -36,14 +37,19 @@ PICK_STATE_ALIGN = 1
 PICK_STATE_CALCULATE_IK = 2
 PICK_STATE_MOVE_ARM = 3
 PICK_STATE_GRIP = 4
-PICK_STATE_BACKUP = 5
-PICK_STATE_DONE = 6
+PICK_STATE_RAISE_ARM = 5
+PICK_STATE_BACKUP = 6
+PICK_STATE_DONE = 7
 
 pick_state = PICK_STATE_APPROACH
 last_target = None
 ik_results = None
 arm_move_start_time = 0
 grip_start_time = 0
+raise_arm_start_time = 0
+target_found = False
+objects_list = []
+raised_arm_ik = None
 
 ## fix file paths
 ################ v [Begin] Do not modify v ##################
@@ -103,16 +109,22 @@ def rotate_y(x,y,z,theta):
     return [-new_x, new_y, new_z]
 
 def lookForTarget(recognized_objects):
+    """Look for target in recognized objects list.
+    Returns True if target found and within range."""
+    global target_object_reference
+    
     if len(recognized_objects) > 0:
-
         for item in recognized_objects:
             if target_item in str(item.getModel()):
-
+                target_object_reference = item  # Store the target object reference
                 target = recognized_objects[0].getPosition()
                 dist = abs(target[2])
 
                 if dist < 5:
                     return True
+    
+    # Return None to preserve original behavior when target not found
+    return None
 
 def checkArmAtPosition(ikResults, cutoff=0.00005):
     '''Checks if arm at position, given ikResults'''
@@ -222,16 +234,18 @@ def calculateIk(offset_target, orient=True, orientation_mode="Y", target_orienta
 
 def getTargetFromObjects(recognized_objects):
     ''' Gets a target vector from a list of recognized objects '''
+    # Use cached target if available, otherwise use first object
+    target_obj = target_object_reference if target_object_reference is not None else recognized_objects[0]
+    target = target_obj.getPosition()
 
-    # Get the first valid target
-    target = recognized_objects[0].getPosition()
+    # Show the raw camera position before any transformations
+    print(f"Raw camera position: ({target[0]:.3f}, {target[1]:.3f}, {target[2]:.3f})")
 
     # Convert camera coordinates to IK/Robot coordinates
-    # offset_target = [-(target[2])+0.22, -target[0]+0.08, (target[1])+0.97+0.2]
-    # offset_target = [-(target[2])+0.22, -target[0]+0.06, (target[1])+0.97+0.2]
-    offset_target = [target[0]-0.06, (target[1])+0.97+0.2, (target[2])-0.22]
-
-    return offset_target
+    # These offsets apply transformations for the arm movement
+    # offset_target = [target[0]-0.06, (target[1])+0.97+0.2, (target[2])-0.22]
+    
+    return target
 
 def closeGrip():
     robot.getDevice("gripper_right_finger_joint").setPosition(0.0)
@@ -260,6 +274,24 @@ def openGrip():
     #     return False
     # else:
     #     return True
+
+def moveHeadDown(amount=0.1, message="Moving head down"):
+    """Move the robot's head down by a specified amount.
+    
+    Args:
+        amount: How much to move the head down (positive value)
+        message: Message to print
+    
+    Returns:
+        The new head position
+    """
+    current_head_pos = robot_parts[0].getPositionSensor().getValue()
+    new_head_pos = current_head_pos - amount  # Move down (negative is down for this joint)
+    new_head_pos = max(new_head_pos, -1.0)  # Don't exceed limit
+    robot_parts[0].setPosition(new_head_pos)
+    print(f"{message}: {new_head_pos}")
+    return new_head_pos
+
 ################ v [Begin] Do not modify v ##################
 
 
@@ -314,11 +346,11 @@ vL = 0
 vR = 0
 furthest_point_so_far = 0
 goal_reached = False
-# object_positions = [(-2.28, -9.85), (-6.96, -6.14)]
-object_positions = [(-2.22, -3.99), (-6.96, -6.14)]
+object_positions = [(-2.28, -9.85, 0.5), (-6.96, -6.14, 0.84)]
+# object_positions = [(-2.22, -3.99, 0.81), (-6.96, -6.14, 0.84)]
 start_ws = (0, 0)
-# end_ws = [(-1.4, -9.7), (-6.92, -5.23)]
-end_ws = [(-2.9, -3.99), (-6.92, -5.23)]
+end_ws = [(-1.4, -9.7), (-6.92, -5.23)]
+# end_ws = [(-2.9, -3.99), (-6.92, -5.23)]
 object_of_interest = 0
 wait_timer = 0
 backup_distance = 0
@@ -623,11 +655,11 @@ class RobotController:
         
         alpha = abs(angle_diff)
         
-        print(f"dx: {dx}, dy: {dy}")
-        print(f"Desired theta: {np.degrees(desired_theta)} degrees")
-        print(f"Current theta: {np.degrees(pose_theta)} degrees")
-        print(f"Alpha: {np.degrees(alpha)} degrees")
-        print(f"Distance to closest point: {rho}")
+        # print(f"dx: {dx}, dy: {dy}")
+        # print(f"Desired theta: {np.degrees(desired_theta)} degrees")
+        # print(f"Current theta: {np.degrees(pose_theta)} degrees")
+        # print(f"Alpha: {np.degrees(alpha)} degrees")
+        # print(f"Distance to closest point: {rho}")
         
         # Controller logic
         if alpha > 0.5:  # Large error - pure rotation
@@ -660,11 +692,12 @@ class RobotController:
     def picknplace_sequence(waypoints_w, object_pos, pose_theta):
         """Pick and place sequence controller with state machine."""
         global wait_timer, backup_distance, backup_phase, pick_state
-        global last_target, ik_results, arm_move_start_time, grip_start_time
+        global last_target, ik_results, arm_move_start_time, grip_start_time, raise_arm_start_time
+        global target_found, objects_list, raised_arm_ik
         
         # robot_parts[0].setPosition(-0.75)  # Set head_2_joint to look downwards
         
-        debug_coordinates()
+        # debug_coordinates()
         
         # State machine for pick and place
         if pick_state == PICK_STATE_APPROACH:
@@ -700,40 +733,151 @@ class RobotController:
             # Check if we can see the target object
             if camera.getRecognitionNumberOfObjects() > 0:
                 objects_list = camera.getRecognitionObjects()
-                target_idx = lookForTarget(objects_list)
+                target_found = lookForTarget(objects_list)
                 
-                if target_idx is not None:
-                    pick_state = PICK_STATE_CALCULATE_IK
-                    print("Target found, calculating IK")
+                if target_found:
+                    # Get vertical position of object in camera frame
+                    # We know target_object_reference is valid here
+                    target_z = target_object_reference.getPosition()[2]
+                    
+                    # Calculate how centered the target is (0 would be perfectly centered)
+                    # The camera frame typically has y values from -1 to 1
+                    target_offset = -target_z
+
+                    print(f"target_offset: {target_offset}")
+                    
+                    current_head_pos = robot_parts[0].getPositionSensor().getValue()
+                    
+                    # Accept a much wider range of positions - as long as object is reasonably in frame
+                    if abs(target_offset) < 0.11:
+                        # Target is sufficiently in view
+                        pick_state = PICK_STATE_CALCULATE_IK
+                        print("Target in view, calculating IK")
+                        return 0, 0, False
+                    else:
+                        # Adjust head position to keep target in frame
+                        adjustment = -target_offset * 0.1  # Gentler adjustment
+                        new_head_pos = current_head_pos + adjustment
+                        new_head_pos = max(min(new_head_pos, 0.0), -1.0)  # Limit range
+                        robot_parts[0].setPosition(new_head_pos)
+                        print(f"Adjusting view: offset={target_offset}, adjusting head to {new_head_pos}")
+                        return 0, 0, False
+                else:
+                    # No target found, try moving head more downward
+                    moveHeadDown(0.1, "Target not found, moving head down to")
                     return 0, 0, False
+            else:
+                # No objects detected, try moving head more downward
+                moveHeadDown(0.1, "No objects detected, moving head down to")
+                return 0, 0, False
             
-            # No target found, try moving head more downward
-            current_head_pos = robot_parts[0].getPositionSensor().getValue()
-            new_head_pos = current_head_pos - 0.1  # Move further down
-            new_head_pos = max(new_head_pos, -1.0)  # Don't exceed limit
-            robot_parts[0].setPosition(new_head_pos)
-            print(f"Target not found, moving head down to {new_head_pos}")
-            
-            # No target found
-            return 0, 0, False
+            # This return is now unreachable and redundant
+            # return 0, 0, False
         
         elif pick_state == PICK_STATE_CALCULATE_IK:
-            # Only calculate IK once
-            objects_list = camera.getRecognitionObjects()
-            if lookForTarget(objects_list):
-                # Get current target
+            print(f"target_found: {target_found}, objects_list: {objects_list}")
+
+            if target_found and objects_list:
                 target = getTargetFromObjects(objects_list)
+
+                # Convert target from robot coordinates to world coordinates
+                # Get current robot position and orientation
+                robot_pos = [pose_x, pose_y]
+                robot_theta = pose_theta
                 
-                # Only recalculate if target changed significantly
+                print(f"Robot position: {robot_pos}, orientation: {robot_theta:.3f} rad ({math.degrees(robot_theta):.1f}°)")
+                
+                # ==================== CAMERA TO WORLD TRANSFORM ====================
+                # The camera target is in the robot's local coordinate frame
+                # But different from the standard orientation
+                
+                # 1. First convert the robot coordinate frame to a standard orientation
+                # In this robot, the camera/target frame has:
+                # - X axis pointing forward from the robot
+                # - Z axis pointing to the right
+                # - Y axis pointing upward
+                
+                # Print the raw target for debugging
+                print(f"Raw target (robot frame): x={target[0]:.3f}, y={target[1]:.3f}, z={target[2]:.3f}")
+                
+                # 2. Calculate the robot's heading in world frame
+                # The compass gives us the negative of the angle between the robot's x-axis and world's x-axis
+                # But our rotations need to be relative to world coordinates
+                
+                # Determine rotation angle based on robot orientation in world frame
+                world_heading = pose_theta + np.pi/2  # Adjust by π/2 because robot forward is along x-axis
+                
+                # 3. Perform the coordinate transformation
+                # The target is relative to robot origin, so we need to:
+                # a. Perform proper rotation based on robot's heading in world frame
+                # b. Add the robot's world position
+            
+                head_tilt = robot_parts[0].getPositionSensor().getValue()  # Get head tilt angle
+                cos_tilt = math.cos(head_tilt)
+                sin_tilt = math.sin(head_tilt)
+
+                # First rotate based on tilt (around x-axis)
+                target_rotated_x = target[0]
+                target_rotated_y = target[1] * cos_tilt - target[2] * sin_tilt
+                target_rotated_z = target[1] * sin_tilt + target[2] * cos_tilt
+
+                # Then rotate based on robot heading (around z-axis/yaw)
+                x_world = robot_pos[0] + target_rotated_x * math.cos(world_heading) - target_rotated_z * math.sin(world_heading)
+                y_world = robot_pos[1] + target_rotated_x * math.sin(world_heading) + target_rotated_z * math.cos(world_heading)
+                
+                # For height, use expected height from the object_positions
+                # This works better than computed height which has significant error
+                z_world = object_positions[object_of_interest][2]
+                
+                # Store calculated world position
+                target_world_x = x_world
+                target_world_y = y_world
+                target_world_z = z_world
+                
+                # Print diagnostics
+                print(f"World heading: {world_heading:.3f} rad ({math.degrees(world_heading):.1f}°)")
+                print(f"Calculated world coordinates: ({target_world_x:.3f}, {target_world_y:.3f}, {target_world_z:.3f})")
+                print(f"Expected object position: {object_positions[object_of_interest]}")
+                
+                # Calculate error between computed and expected position for debugging
+                expected_pos = object_positions[object_of_interest]
+                position_error = math.sqrt((target_world_x - expected_pos[0])**2 + 
+                                         (target_world_y - expected_pos[1])**2)
+                print(f"Position error: {position_error:.3f} meters")
+                
+                # 4. Continue with IK calculation using the original target
+                # The IK function already properly handles the robot-frame coordinates
                 if last_target is None or np.linalg.norm(np.array(target) - np.array(last_target)) > 0.01:
                     print(f"Calculating IK for target: {target}")
                     ik_results = calculateIk(target)
                     last_target = target
                 
+                print(f"IK results: {ik_results}")
+
                 pick_state = PICK_STATE_MOVE_ARM
                 arm_move_start_time = robot.getTime()
+
+                # exit()
+                
+                return 0, 0, False
+            else:
+                raise Exception("Reached this state but no target found")
+            # Only calculate IK once
+            # objects_list = camera.getRecognitionObjects()
+            # if lookForTarget(objects_list):
+            #     # Get current target using existing function which handles coordinate transforms
+            #     target = getTargetFromObjects(objects_list)
+                
+            #     # Only recalculate if target changed significantly
+            #     if last_target is None or np.linalg.norm(np.array(target) - np.array(last_target)) > 0.01:
+            #         print(f"Calculating IK for target: {target}")
+            #         ik_results = calculateIk(target)
+            #         last_target = target
+                
+            #     pick_state = PICK_STATE_MOVE_ARM
+            #     arm_move_start_time = robot.getTime()
             
-            return 0, 0, False
+            # return 0, 0, False
         
         elif pick_state == PICK_STATE_MOVE_ARM:
             # Execute arm movement if we have IK results
@@ -753,24 +897,81 @@ class RobotController:
             closeGrip()
             
             # Wait a bit for gripper to close (1 second)
-            if robot.getTime() - grip_start_time > 1.0:
+            current_time = robot.getTime()
+            time_in_grip = current_time - grip_start_time
+            print(f"In GRIP state, current time: {current_time:.2f}, start time: {grip_start_time:.2f}, elapsed: {time_in_grip:.2f} seconds")
+            
+            if time_in_grip > 1.0:
+                print(f"Transitioning from GRIP to RAISE_ARM state after {time_in_grip:.2f} seconds")
+                pick_state = PICK_STATE_RAISE_ARM
+                raise_arm_start_time = robot.getTime()
+                # We'll calculate the raised arm position in the RAISE_ARM state
+            
+            return 0, 0, False
+        
+        elif pick_state == PICK_STATE_RAISE_ARM:
+            # Move the arm to the raised position
+            if raised_arm_ik is None:
+                # Calculate a safer arm position for backing up
+                # Start with current joint positions
+                joint_positions = []
+                for link_id in range(len(my_chain.links)):
+                    link_name = my_chain.links[link_id].name
+                    if link_name in motor_dict:
+                        joint_positions.append(motor_dict[link_name].getPositionSensor().getValue())
+                    else:
+                        joint_positions.append(0.0)  # Default for non-motor joints
+                
+                # Modify key joints to a safer position
+                for i in range(len(my_chain.links)):
+                    link_name = my_chain.links[i].name
+                    if link_name == "torso_lift_joint":
+                        joint_positions[i] = 0.35  # Maximum height for torso
+                    elif link_name == "arm_1_joint":
+                        joint_positions[i] = 0.07  # Default arm position
+                    elif link_name == "arm_2_joint":
+                        joint_positions[i] = 0.6  # Tucked in position
+                    elif link_name == "arm_3_joint":
+                        joint_positions[i] = -2.5  # More vertical
+                
+                # Store the new position
+                raised_arm_ik = joint_positions
+                print("Calculated safer arm position for backing up")
+            
+            print("Moving arm to safer position for backing up")
+            moveArmToTarget(raised_arm_ik)
+            
+            # Check if the arm is at the raised position or if timeout (3 seconds)
+            current_time = robot.getTime()
+            time_raising = current_time - raise_arm_start_time
+            print(f"Adjusting arm position, elapsed time: {time_raising:.2f} seconds")
+            
+            if checkArmAtPosition(raised_arm_ik, cutoff=0.05) or time_raising > 3.0:
+                print("Arm in safe position, transitioning to BACKUP state")
                 pick_state = PICK_STATE_BACKUP
                 backup_distance = 0
             
             return 0, 0, False
         
         elif pick_state == PICK_STATE_BACKUP:
-            # Backup from object
-            backup_speed = -MAX_SPEED / 2
+            # Backup from object - use a stronger negative speed to ensure backward motion
+            backup_speed = -MAX_SPEED * 0.75  # Increase backup speed
+            print(f"In BACKUP state, distance backed up: {backup_distance:.2f} meters, speed: {backup_speed}")
             
-            # Increment backup distance
-            backup_distance += abs(backup_speed) / MAX_SPEED * MAX_SPEED_MS * timestep / 1000.0
+            # Calculate exact distance increment based on timestep
+            distance_increment = abs(backup_speed) / MAX_SPEED * MAX_SPEED_MS * timestep / 1000.0
+            backup_distance += distance_increment
+            print(f"Distance increment: {distance_increment:.5f}, new total: {backup_distance:.2f}")
             
             # Check if we've backed up enough
             if backup_distance >= 0.5:
+                print("Backup complete, transitioning to DONE state")
                 pick_state = PICK_STATE_DONE
                 return 0, 0, False
             
+            # Make sure we return negative speeds for both wheels to move backward
+            # Return the exact backup_speed value rather than relying on later processing
+            print(f"Returning wheel velocities: {backup_speed}, {backup_speed}")
             return backup_speed, backup_speed, False
         
         elif pick_state == PICK_STATE_DONE:
@@ -778,6 +979,7 @@ class RobotController:
             pick_state = PICK_STATE_APPROACH
             last_target = None
             ik_results = None
+            raised_arm_ik = None
             backup_distance = 0
             return 0, 0, True
         
@@ -1039,7 +1241,10 @@ while robot.step(timestep) != -1 and mode != "planner":
                 waypoints_w, object_positions[object_of_interest], pose_theta
             )
             
+            print(f"Received from picknplace_sequence: vL={new_vL}, vR={new_vR}, finished={sequence_finished}")
+            
             if sequence_finished:
+                print(f"Sequence finished for object {object_of_interest}")
                 object_of_interest += 1
                 if object_of_interest >= len(object_positions):
                     print("Reached all objects")
@@ -1065,6 +1270,7 @@ while robot.step(timestep) != -1 and mode != "planner":
                 )
             
             vL, vR = new_vL, new_vR
+            print(f"Setting wheel velocities: vL={vL}, vR={vR}")
         else:
             vL, vR, furthest_point_so_far = RobotController.follow_path_controller(
                 pose_x, pose_y, pose_theta, waypoints_w, furthest_point_so_far
